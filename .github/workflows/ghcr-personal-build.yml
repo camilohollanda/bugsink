@@ -1,0 +1,61 @@
+name: Build personal Bugsink image (GHCR)
+
+# Builds a custom Bugsink image from this branch and publishes it to
+# ghcr.io/<owner>/bugsink for personal/homeserver use while the upstream
+# fix is unmerged. Not part of the upstream contribution.
+
+on:
+  push:
+    branches: [homeserver-build]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/bugsink
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # setuptools_scm reads the version from git tags
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          REF="${GITHUB_REF_NAME//\//-}"
+          BASE="${REGISTRY}/${IMAGE_NAME}"
+          {
+            echo 'tags<<EOF'
+            echo "${BASE}:${REF}"
+            echo "${BASE}:${REF}-${SHORT_SHA}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
